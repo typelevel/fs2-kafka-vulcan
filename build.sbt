@@ -15,11 +15,7 @@ val vulcanVersion = "1.14.1"
 inThisBuild(
   Seq(
     crossScalaVersions := Seq(scala212Version, scala213Version, scala3Version),
-    developers := List(
-      tlGitHubDev("aartigao", "Alan Artigao"),
-      tlGitHubDev("bplommer", "Ben Plommer"),
-      tlGitHubDev("vlovgr", "Viktor Rudebeck")
-    ),
+    developers := List(tlGitHubDev("vlovgr", "Viktor Rudebeck")),
     githubWorkflowBuild += WorkflowStep.Sbt(
       List("docs/mdoc"),
       name = Some("Generate readme"),
