@@ -10,7 +10,6 @@ pull_request_rules:
   conditions:
   - author=typelevel-steward[bot]
   - body~=labels:.*early-semver-patch
-  - status-success=Test (ubuntu-22.04, 2.12, temurin@21, rootJVM)
   - status-success=Test (ubuntu-22.04, 2.13, temurin@21, rootJVM)
   - status-success=Test (ubuntu-22.04, 3, temurin@21, rootJVM)
   actions:
