@@ -5,13 +5,11 @@
 [![Discord](https://img.shields.io/discord/632277896739946517?color=5865f2)](https://discord.gg/fjqZMuqzAp)
 [![Version](https://img.shields.io/maven-central/v/org.typelevel/fs2-kafka-vulcan_3?label=version&color=orange)](https://index.scala-lang.org/typelevel/fs2-kafka-vulcan)
 
-The `@VULCAN_MODULE_NAME@` module provides [Avro](https://avro.apache.org) support for [FS2 Kafka](https://github.com/typelevel/fs2-kafka) using [Vulcan](https://typelevel.org/vulcan).
+The `@VULCAN_MODULE_NAME@` module provides [Avro](https://avro.apache.org) support for [FS2 Kafka](https://github.com/typelevel/fs2-kafka) using [Vulcan](https://typelevel.org/vulcan). Schemas are stored in a schema registry implementing the [Confluent Schema Registry REST API](https://docs.confluent.io/platform/current/schema-registry/develop/api.html), like [Confluent Schema Registry](https://github.com/confluentinc/schema-registry) and [Karapace](https://github.com/Aiven-Open/karapace), using [http4s-schema-registry](https://github.com/http4s/http4s-schema-registry). Records use the same wire format as the Confluent serializers.
 
-To get started with [sbt](https://scala-sbt.org), add the following lines to your `build.sbt` file.
+To get started with [sbt](https://scala-sbt.org), add the following line to your `build.sbt` file.
 
 ```scala
-resolvers += "confluent".at("https://packages.confluent.io/maven/")
-
 libraryDependencies += "@ORGANIZATION@" %% "@VULCAN_MODULE_NAME@" % "@VERSION@"
 ```
 
@@ -23,8 +21,7 @@ We start by defining the type we want to serialize or deserialize, and create a 
 
 ```scala mdoc:silent
 import cats.syntax.all._
-
-import vulcan.Codec
+import org.typelevel.vulcan.Codec
 
 final case class Person(name: String, age: Option[Int])
 
@@ -40,145 +37,115 @@ implicit val personCodec: Codec[Person] =
   }
 ```
 
-We then define `AvroSettings`, describing the schema registry settings.
+We then create a `SchemaRegistryClient` for the schema registry.
 
 ```scala mdoc:silent
-import cats.effect.IO
-import fs2.kafka.vulcan.{Auth, AvroSettings, SchemaRegistryClientSettings}
+import cats.effect.{IO, Resource}
+import org.http4s.ember.client.EmberClientBuilder
+import org.http4s.schemaregistry.{Auth, SchemaRegistryClient, SchemaRegistryClientBuilder}
+import org.http4s.syntax.literals._
 
-val avroSettings =
-  AvroSettings {
-    SchemaRegistryClientSettings[IO]("http://localhost:8081").withAuth(
-      Auth.Basic("username", "password")
-    )
+val schemaRegistryClient: Resource[IO, SchemaRegistryClient[IO]] =
+  EmberClientBuilder.default[IO].build.evalMap { client =>
+    SchemaRegistryClientBuilder
+      .default(client, uri"http://localhost:8081")
+      .withAuth(Auth.Basic("username", "password"))
+      .build
   }
 ```
 
-We can then create a `Serializer` and `Deserializer` instance for `Person`.
+We can then create a `Serializer` and `Deserializer` for `Person` using `AvroSerializer` and `AvroDeserializer`.
 
 ```scala mdoc:silent
-import cats.effect.Resource
 import fs2.kafka.{ValueDeserializer, ValueSerializer}
-import fs2.kafka.vulcan.{avroDeserializer, avroSerializer}
+import fs2.kafka.vulcan.{AvroDeserializer, AvroSerializer}
 
-implicit val personSerializer: Resource[IO, ValueSerializer[IO, Person]] =
-  avroSerializer[Person].forValue(avroSettings)
+def personSerializer(client: SchemaRegistryClient[IO]): Resource[IO, ValueSerializer[IO, Person]] =
+  AvroSerializer.default(client).forValue[Person]
 
-implicit val personDeserializer: Resource[IO, ValueDeserializer[IO, Person]] =
-  avroDeserializer[Person].forValue(avroSettings)
+def personDeserializer(client: SchemaRegistryClient[IO]): Resource[IO, ValueDeserializer[IO, Person]] =
+  AvroDeserializer.default(client).forValue[Person]
 ```
 
-Finally, we can create settings, passing the `Serializer`s and `Deserializer`s implicitly.
+Finally, we can create settings, passing the `Serializer` and `Deserializer`.
 
 ```scala mdoc:silent
-import fs2.kafka.{AutoOffsetReset, ConsumerSettings, ProducerSettings}
+import fs2.kafka.{AutoOffsetReset, ConsumerSettings, Deserializer, ProducerSettings, Serializer}
 
-val consumerSettings =
-  ConsumerSettings[IO, String, Person]
-    .withAutoOffsetReset(AutoOffsetReset.Earliest)
-    .withBootstrapServers("localhost:9092")
-    .withGroupId("group")
+val settings =
+  schemaRegistryClient.map { client =>
+    val consumerSettings =
+      ConsumerSettings(
+        keyDeserializer = Deserializer[IO, String],
+        valueDeserializer = personDeserializer(client)
+      ).withAutoOffsetReset(AutoOffsetReset.Earliest)
+        .withBootstrapServers("localhost:9092")
+        .withGroupId("group")
 
-val producerSettings =
-  ProducerSettings[IO, String, Person].withBootstrapServers("localhost:9092")
+    val producerSettings =
+      ProducerSettings(
+        keySerializer = Serializer[IO, String],
+        valueSerializer = personSerializer(client)
+      ).withBootstrapServers("localhost:9092")
+
+    (consumerSettings, producerSettings)
+  }
 ```
 
-If we prefer, we can instead specify the `Serializer`s and `Deserializer`s explicitly.
+The serializers and deserializers share the client, including its schema cache.
+
+## Registering Schemas
+
+By default, the schema of the `Codec` is registered automatically when serializing, unless it is already registered. We can disable this using `withAutoRegisterSchemas(false)`, in which case the schema is looked up instead, and serialization fails if the schema is not registered. We can then use `registerKeySchema` or `registerValueSchema` to register the schema for record keys or values of a topic, or `registerSchema` to register the schema under a subject.
 
 ```scala mdoc:silent
-import fs2.kafka.{Deserializer, Serializer}
+def registerSchemas(client: SchemaRegistryClient[IO]) = {
+  val serializer = AvroSerializer.default(client).withAutoRegisterSchemas(false)
 
-ConsumerSettings(
-  keyDeserializer = Deserializer[IO, String],
-  valueDeserializer = personDeserializer
-).withAutoOffsetReset(AutoOffsetReset.Earliest)
-  .withBootstrapServers("localhost:9092")
-  .withGroupId("group")
-
-ProducerSettings(
-  keySerializer = Serializer[IO, String],
-  valueSerializer = personSerializer
-).withBootstrapServers("localhost:9092")
-```
-
-By default, a schema will automatically be registered when used to publish a message. We can disable this behaviour by
-using `withAutoRegisterSchemas(false)`. We can then use `registerSchema` to manually register the schema with the registry server:
-
-```scala mdoc:silent
-val avroSettingsWithoutAutoRegister = avroSettings.withAutoRegisterSchemas(false)
-
-avroSettingsWithoutAutoRegister.registerSchema[String]("person-key") *>
-  avroSettingsWithoutAutoRegister.registerSchema[Person]("person-value")
-```
-
-### Sharing Client
-
-When creating `AvroSettings` with `SchemaRegistryClientSettings`, one schema registry client will be created per `Serializer` or `Deserializer`. For many cases, this is completely fine, but it's possible to reuse a single client for multiple `Serializer`s and `Deserializer`s.
-
-To share a `SchemaRegistryClient`, we first create it and then pass it to `AvroSettings`.
-
-```scala mdoc:silent
-val avroSettingsSharedClient: IO[AvroSettings[IO]] =
-  SchemaRegistryClientSettings[IO]("http://localhost:8081")
-    .withAuth(Auth.Basic("username", "password"))
-    .createSchemaRegistryClient
-    .map(AvroSettings(_))
-```
-
-We can then create multiple `Serializer`s and `Deserializer`s using the `AvroSettings`.
-
-```scala mdoc:silent
-avroSettingsSharedClient.map { avroSettings =>
-  val personSerializer: Resource[IO, ValueSerializer[IO, Person]] =
-    avroSerializer[Person].forValue(avroSettings)
-
-  val personDeserializer: Resource[IO, ValueDeserializer[IO, Person]] =
-    avroDeserializer[Person].forValue(avroSettings)
-
-  val consumerSettings =
-    ConsumerSettings(
-      keyDeserializer = Deserializer[IO, String],
-      valueDeserializer = personDeserializer
-    ).withAutoOffsetReset(AutoOffsetReset.Earliest)
-      .withBootstrapServers("localhost:9092")
-      .withGroupId("group")
-
-  val producerSettings =
-    ProducerSettings(
-      keySerializer = Serializer[IO, String],
-      valueSerializer = personSerializer
-    ).withBootstrapServers("localhost:9092")
-
-  (consumerSettings, producerSettings)
+  serializer.registerKeySchema[String]("people") *>
+    serializer.registerValueSchema[Person]("people")
 }
+```
+
+## Testing
+
+For tests, `TestSchemaRegistry` provides an in-memory schema registry.
+
+```scala mdoc:silent
+import org.http4s.schemaregistry.TestSchemaRegistry
+
+val testSerializer: Resource[IO, ValueSerializer[IO, Person]] =
+  Resource.eval(TestSchemaRegistry[IO].flatMap(_.client.build)).flatMap { client =>
+    AvroSerializer.default(client).forValue[Person]
+  }
 ```
 
 ## MUnit Testkit
 
-The `@VULCAN_TESTKIT_MUNIT_MODULE_NAME@` module provides an [MUnit](https://scalameta.org/munit/) fixture for testing Vulcan
-codecs against a [schema registry](https://docs.confluent.io/platform/current/schema-registry/index.html).
+The `@VULCAN_TESTKIT_MUNIT_MODULE_NAME@` module provides an [MUnit](https://scalameta.org/munit/) fixture for checking whether Vulcan codecs are compatible with subjects in a schema registry.
 
-To get started with [sbt](https://scala-sbt.org), add the following lines to your `build.sbt` file.
+To get started with [sbt](https://scala-sbt.org), add the following line to your `build.sbt` file.
 
 ```scala
-resolvers += "confluent".at("https://packages.confluent.io/maven/")
-
 libraryDependencies += "@ORGANIZATION@" %% "@VULCAN_TESTKIT_MUNIT_MODULE_NAME@" % "@VERSION@"
 ```
 
 Following is a quick example showing how the module can be used.
 
 ```scala mdoc:reset
+import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fs2.kafka.vulcan.testkit.SchemaSuite
-import fs2.kafka.vulcan.SchemaRegistryClientSettings
-
-import vulcan.Codec
+import org.http4s.ember.client.EmberClientBuilder
+import org.http4s.schemaregistry.{SchemaRegistryClientBuilder, SubjectName}
+import org.http4s.syntax.literals._
+import org.typelevel.vulcan.Codec
 
 class MySpec extends SchemaSuite {
-
   val checker = compatibilityChecker(
-    SchemaRegistryClientSettings("https://some-schema-registry:1234")
+    EmberClientBuilder.default[IO].build.evalMap { client =>
+      SchemaRegistryClientBuilder.default(client, uri"https://some-schema-registry:1234").build
+    }
   )
 
   override def munitFixtures = List(checker)
@@ -187,18 +154,19 @@ class MySpec extends SchemaSuite {
     val myCodec: Codec[String] = Codec.string
 
     checker()
-      .assertReaderCompatibility(myCodec, "my-schema-subject")
+      .assertCompatibility(myCodec, SubjectName("my-schema-subject"))
       .unsafeRunSync()
   }
-
 }
 ```
+
+The schema registry checks whether the schema of the codec is compatible with the latest version of the subject, according to the compatibility level configured for the subject.
 
 ## Dependencies
 
 Refer to the table below for dependencies and version support across modules.
 
-| Module                               | Dependencies                                                                                                                                                                                                                                    | Scala                                             |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `@VULCAN_MODULE_NAME@`               | [FS2-Kafka @FS2_KAFKA_VERSION@](https://github.com/typelevel/fs2-kafka), [Vulcan @VULCAN_VERSION@](https://github.com/typelevel/vulcan), [Confluent Kafka Avro Serializer @CONFLUENT_VERSION@](https://github.com/confluentinc/schema-registry) | Scala @VULCAN_CROSS_SCALA_VERSIONS@               |
-| `@VULCAN_TESTKIT_MUNIT_MODULE_NAME@` | `@VULCAN_MODULE_NAME@`, [MUnit @MUNIT_VERSION@](https://github.com/scalameta/munit)                                                                                                                                                             | Scala @VULCAN_TESTKIT_MUNIT_CROSS_SCALA_VERSIONS@ |
+| Module                               | Dependencies                                                                                                                                                                                                                                         | Scala                                             |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `@VULCAN_MODULE_NAME@`               | [fs2-kafka @FS2_KAFKA_VERSION@](https://github.com/typelevel/fs2-kafka), [http4s-schema-registry @HTTP4S_SCHEMA_REGISTRY_VERSION@](https://github.com/http4s/http4s-schema-registry), [vulcan @VULCAN_VERSION@](https://github.com/typelevel/vulcan) | Scala @VULCAN_CROSS_SCALA_VERSIONS@               |
+| `@VULCAN_TESTKIT_MUNIT_MODULE_NAME@` | @VULCAN_MODULE_NAME@, [munit @MUNIT_VERSION@](https://github.com/scalameta/munit)                                                                                                                                                                    | Scala @VULCAN_TESTKIT_MUNIT_CROSS_SCALA_VERSIONS@ |
