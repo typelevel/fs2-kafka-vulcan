@@ -10,7 +10,7 @@ The `fs2-kafka-vulcan` module provides [Avro](https://avro.apache.org) support f
 To get started with [sbt](https://scala-sbt.org), add the following line to your `build.sbt` file.
 
 ```scala
-libraryDependencies += "org.typelevel" %% "fs2-kafka-vulcan" % "4.2.0"
+libraryDependencies += "org.typelevel" %% "fs2-kafka-vulcan" % "5.0.0-M1"
 ```
 
 Published for Scala 2.13 and 3.3.
@@ -127,7 +127,7 @@ The `fs2-kafka-vulcan-testkit-munit` module provides an [MUnit](https://scalamet
 To get started with [sbt](https://scala-sbt.org), add the following line to your `build.sbt` file.
 
 ```scala
-libraryDependencies += "org.typelevel" %% "fs2-kafka-vulcan-testkit-munit" % "4.2.0"
+libraryDependencies += "org.typelevel" %% "fs2-kafka-vulcan-testkit-munit" % "5.0.0-M1"
 ```
 
 Following is a quick example showing how the module can be used.
