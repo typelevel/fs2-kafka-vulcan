@@ -1,7 +1,7 @@
 val catsEffectVersion = "3.7.1"
 val catsVersion = "2.13.0"
 val confluentVersion = "8.4.0"
-val fs2KafkaVersion = "4.2.0"
+val fs2KafkaVersion = "4.3.0-SNAPSHOT"
 val http4sSchemaRegistryVersion = "1.0.0-M1"
 val http4sVersion = "0.23.38"
 val kafkaImage = "apache/kafka:4.4.0"
@@ -14,7 +14,7 @@ val scodecBitsVersion = "1.2.5"
 val slf4jNopVersion = "2.0.20"
 val testcontainersVersion = "2.0.5"
 val vulcan1Version = "1.14.1"
-val vulcanVersion = "2.0.0-M1"
+val vulcanVersion = "2.0.0-M2-SNAPSHOT"
 val weaverVersion = "0.13.0"
 
 inThisBuild(

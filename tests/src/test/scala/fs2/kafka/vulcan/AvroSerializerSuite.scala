@@ -215,7 +215,7 @@ object AvroSerializerSuite extends SimpleIOSuite with Checkers {
       expect(!serializer.normalizeSchemas) &&
       expect.same(SubjectNameStrategy.TopicName, serializer.subjectNameStrategy) &&
       expect.same(
-        "AvroSerializer(autoRegisterSchemas = false, normalizeSchemas = true, subjectNameStrategy = TopicName)",
+        "AvroSerializer(autoRegisterSchemas = false, normalizeSchemas = true, subjectNameStrategy = TopicName, schemaIdHeaders = false)",
         serializer.withAutoRegisterSchemas(false).withNormalizeSchemas(true).toString
       )
     }

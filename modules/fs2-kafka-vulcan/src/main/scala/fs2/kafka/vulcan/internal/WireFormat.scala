@@ -9,6 +9,7 @@ package fs2.kafka.vulcan.internal
 import fs2.kafka.DeserializationException
 import fs2.kafka.Header
 import fs2.kafka.Headers
+import fs2.kafka.SerializationException
 import java.util.UUID
 import org.http4s.schemaregistry.SchemaGuid
 import org.http4s.schemaregistry.SchemaId
@@ -49,6 +50,29 @@ private[vulcan] object WireFormat {
     bytes.copyToArray(result, IdSize)
     result
   }
+
+  /**
+    * Returns the headers with the schema GUID in the `__key_schema_id` or `__value_schema_id` header,
+    * as a magic byte of one followed by the 16-byte schema GUID, replacing headers with the same key,
+    * like the Confluent `HeaderSchemaIdSerializer`. Fails for schema GUIDs which are not UUIDs.
+    */
+  def withSchemaGuidHeader(isKey: Boolean, headers: Headers, guid: SchemaGuid): Either[Throwable, Headers] =
+    try {
+      val uuid = UUID.fromString(guid.value)
+      val key = if (isKey) KeySchemaIdHeader else ValueSchemaIdHeader
+      val value = new Array[Byte](GuidSize)
+      value(0) = GuidMagicByte
+      writeLong(value, 1, uuid.getMostSignificantBits)
+      writeLong(value, 9, uuid.getLeastSignificantBits)
+      Right(Headers.fromChain(headers.toChain.filterNot(_.key == key)).append(Header(key, value)))
+    } catch {
+      case _: IllegalArgumentException =>
+        Left(
+          SerializationException(
+            s"Schema GUID ${guid.value} is not a UUID, which is required for schema identifiers in headers"
+          )
+        )
+    }
 
   /** Returns the identifier of the writer schema, and the Avro binary. */
   def read(
@@ -102,6 +126,11 @@ private[vulcan] object WireFormat {
     bytes(offset + 1) = (value >>> 16).toByte
     bytes(offset + 2) = (value >>> 8).toByte
     bytes(offset + 3) = value.toByte
+  }
+
+  private def writeLong(bytes: Array[Byte], offset: Int, value: Long): Unit = {
+    writeInt(bytes, offset, (value >>> 32).toInt)
+    writeInt(bytes, offset + 4, value.toInt)
   }
 
   private def readInt(bytes: Array[Byte], offset: Int): Int =

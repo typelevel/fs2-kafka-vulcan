@@ -9,6 +9,7 @@ package fs2.kafka.vulcan
 import fs2.kafka.DeserializationException
 import fs2.kafka.Header
 import fs2.kafka.Headers
+import fs2.kafka.SerializationException
 import fs2.kafka.vulcan.Generators.*
 import fs2.kafka.vulcan.internal.WireFormat
 import java.nio.ByteBuffer
@@ -17,6 +18,7 @@ import org.http4s.schemaregistry.SchemaGuid
 import org.http4s.schemaregistry.SchemaId
 import org.scalacheck.Arbitrary
 import org.scalacheck.Gen
+import scala.util.Try
 import scodec.bits.ByteVector
 import weaver.SimpleIOSuite
 import weaver.scalacheck.Checkers
@@ -163,6 +165,51 @@ object WireFormatSuite extends SimpleIOSuite with Checkers {
             error.getMessage
           )
       }
+    }
+  }
+
+  test("schema GUIDs are written in the header for keys or values, replacing headers with the same key") {
+    val headerKeys =
+      Gen.oneOf(WireFormat.KeySchemaIdHeader, WireFormat.ValueSchemaIdHeader, "other")
+
+    val headerLists =
+      Gen.listOf(Gen.zip(headerKeys, Gen.option(schemaIdentifiers)))
+
+    def contents(headers: Headers): List[(String, Option[List[Byte]])] =
+      headers.toChain.toList.map(header => (header.key, Option(header.value).map(_.toList)))
+
+    forall(Gen.zip(booleans, headerLists, Gen.uuid, byteVectors)) { case (isKey, headerList, guid, value) =>
+      val key = headerKey(isKey)
+      val headers =
+        Headers.fromIterable(headerList.map { case (key, identifier) =>
+          Header(key, identifier.map(headerValue).orNull)
+        })
+
+      matches(WireFormat.withSchemaGuidHeader(isKey, headers, SchemaGuid(guid.toString))) {
+        case Right(written) =>
+          expect.same(contents(headers).filterNot(_._1 == key), contents(written).filterNot(_._1 == key)) &&
+          expect.same(
+            List(key -> Some(headerValue(Left(guid)).toList)),
+            contents(written).filter(_._1 == key)
+          ) &&
+          expect.same(
+            Right((WireFormat.Guid(SchemaGuid(guid.toString)), value)),
+            WireFormat.read(isKey, written, value.toArray)
+          )
+      }
+    }
+  }
+
+  test("schema GUIDs which are not UUIDs fail to be written in headers") {
+    forall(Gen.zip(booleans, strings.suchThat(guid => Try(UUID.fromString(guid)).isFailure))) {
+      case (isKey, guid) =>
+        matches(WireFormat.withSchemaGuidHeader(isKey, Headers.empty, SchemaGuid(guid))) {
+          case Left(error: SerializationException) =>
+            expect.same(
+              s"Schema GUID $guid is not a UUID, which is required for schema identifiers in headers",
+              error.getMessage
+            )
+        }
     }
   }
 }

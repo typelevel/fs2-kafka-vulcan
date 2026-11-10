@@ -107,6 +107,24 @@ def registerSchemas(client: SchemaRegistryClient[IO]) = {
 }
 ```
 
+## Writer Schemas
+
+By default, values are written using the schema of the `Codec`. Like `use.latest.version` and `use.schema.id` for the Confluent serializers, we can use `withLatestVersion` or `withSchemaId` to write values using the latest version of the subject, or the schema with an id, in which case schemas are not registered. Serialization fails if values cannot be written using that schema.
+
+```scala
+def latestVersionSerializer(client: SchemaRegistryClient[IO]) =
+  AvroSerializer.default(client).withLatestVersion.forValue[Person]
+```
+
+## Schema Identifiers in Headers
+
+Like the Confluent `HeaderSchemaIdSerializer`, we can use `withSchemaIdHeaders(true)` to write schema GUIDs in the `__key_schema_id` and `__value_schema_id` headers, instead of prefixing values with schema ids. This requires a schema registry supporting schema GUIDs, like Confluent Schema Registry. Deserializers read schema identifiers from these headers when present.
+
+```scala
+def schemaIdHeadersSerializer(client: SchemaRegistryClient[IO]) =
+  AvroSerializer.default(client).withSchemaIdHeaders(true).forValue[Person]
+```
+
 ## Testing
 
 For tests, `TestSchemaRegistry` provides an in-memory schema registry.
@@ -168,5 +186,5 @@ Refer to the table below for dependencies and version support across modules.
 
 | Module                               | Dependencies                                                                                                                                                                                                                                         | Scala                                             |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `fs2-kafka-vulcan`               | [fs2-kafka 4.2.0](https://github.com/typelevel/fs2-kafka), [http4s-schema-registry 1.0.0-M1](https://github.com/http4s/http4s-schema-registry), [vulcan 2.0.0-M1](https://github.com/typelevel/vulcan) | Scala 2.13 and 3.3               |
+| `fs2-kafka-vulcan`               | [fs2-kafka 4.3.0-SNAPSHOT](https://github.com/typelevel/fs2-kafka), [http4s-schema-registry 1.0.0-M1](https://github.com/http4s/http4s-schema-registry), [vulcan 2.0.0-M2-SNAPSHOT](https://github.com/typelevel/vulcan) | Scala 2.13 and 3.3               |
 | `fs2-kafka-vulcan-testkit-munit` | fs2-kafka-vulcan, [munit 1.3.6](https://github.com/scalameta/munit)                                                                                                                                                                    | Scala 2.13 and 3.3 |

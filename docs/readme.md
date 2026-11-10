@@ -107,6 +107,24 @@ def registerSchemas(client: SchemaRegistryClient[IO]) = {
 }
 ```
 
+## Writer Schemas
+
+By default, values are written using the schema of the `Codec`. Like `use.latest.version` and `use.schema.id` for the Confluent serializers, we can use `withLatestVersion` or `withSchemaId` to write values using the latest version of the subject, or the schema with an id, in which case schemas are not registered. Serialization fails if values cannot be written using that schema.
+
+```scala mdoc:silent
+def latestVersionSerializer(client: SchemaRegistryClient[IO]) =
+  AvroSerializer.default(client).withLatestVersion.forValue[Person]
+```
+
+## Schema Identifiers in Headers
+
+Like the Confluent `HeaderSchemaIdSerializer`, we can use `withSchemaIdHeaders(true)` to write schema GUIDs in the `__key_schema_id` and `__value_schema_id` headers, instead of prefixing values with schema ids. This requires a schema registry supporting schema GUIDs, like Confluent Schema Registry. Deserializers read schema identifiers from these headers when present.
+
+```scala mdoc:silent
+def schemaIdHeadersSerializer(client: SchemaRegistryClient[IO]) =
+  AvroSerializer.default(client).withSchemaIdHeaders(true).forValue[Person]
+```
+
 ## Testing
 
 For tests, `TestSchemaRegistry` provides an in-memory schema registry.

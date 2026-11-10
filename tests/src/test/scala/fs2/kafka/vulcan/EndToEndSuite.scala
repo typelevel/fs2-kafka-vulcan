@@ -18,6 +18,7 @@ import fs2.kafka.ProducerRecords
 import fs2.kafka.ProducerSettings
 import fs2.kafka.Serializer
 import fs2.kafka.ValueDeserializer
+import fs2.kafka.vulcan.EndToEndSuite.Context
 import fs2.kafka.vulcan.testkit.SchemaSuite
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
 import io.confluent.kafka.serializers.KafkaAvroDeserializer
@@ -31,7 +32,6 @@ import org.http4s.schemaregistry.SubjectName
 import org.typelevel.vulcan.Codec
 import scala.jdk.CollectionConverters.*
 import weaver.IOSuite
-import fs2.kafka.vulcan.EndToEndSuite.Context
 
 abstract class EndToEndSuite extends IOSuite {
   override type Res = Context
@@ -134,6 +134,15 @@ object EndToEndSuite {
 object ConfluentEndToEndSuite extends EndToEndSuite {
   override def environment: Resource[IO, Containers.Environment] =
     Containers.confluent
+
+  test("consumes values produced with schema GUIDs in headers") { context =>
+    for {
+      topic <- newTopic
+      serializer = AvroSerializer.default(context.client).withSchemaIdHeaders(true)
+      _ <- produce(context, topic, serializer, TestRecord("test"))
+      value <- consume(context, topic, AvroDeserializer.default(context.client).forValue[TestRecord])
+    } yield expect.same(TestRecord("test"), value)
+  }
 }
 
 object KarapaceEndToEndSuite extends EndToEndSuite {
