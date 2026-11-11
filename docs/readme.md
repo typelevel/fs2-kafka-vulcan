@@ -1,4 +1,4 @@
-# FS2 Kafka Vulcan
+# FS2 Kafka Vulcan <img src="docs/img/logo.svg" align="right" height="130" alt="" />
 
 [![Typelevel Organization Project](https://img.shields.io/badge/typelevel-organization%20project-ff6169)](https://typelevel.org)
 [![GitHub Actions](https://img.shields.io/github/actions/workflow/status/typelevel/fs2-kafka-vulcan/ci.yml?branch=main)](https://github.com/typelevel/fs2-kafka-vulcan/actions)
